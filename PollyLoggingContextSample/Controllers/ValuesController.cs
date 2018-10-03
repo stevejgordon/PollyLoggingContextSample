@@ -1,8 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Polly;
+using Polly.Registry;
+using PollyLoggingContextSample.Policies;
 
 namespace PollyLoggingContextSample.Controllers
 {
@@ -10,36 +14,43 @@ namespace PollyLoggingContextSample.Controllers
     [ApiController]
     public class ValuesController : ControllerBase
     {
+        private readonly ILogger<ValuesController> _logger;
+        private readonly IReadOnlyPolicyRegistry<string> _policyRegistry;
+        private readonly IHttpClientFactory _clientFactory;
+
+        public ValuesController(ILogger<ValuesController> logger, IReadOnlyPolicyRegistry<string> policyRegistry, IHttpClientFactory clientFactory)
+        {
+            _logger = logger;
+            _policyRegistry = policyRegistry;
+            _clientFactory = clientFactory;
+        }
+
         // GET api/values
         [HttpGet]
-        public ActionResult<IEnumerable<string>> Get()
+        public async Task<ActionResult<string>> Get()
         {
-            return new string[] { "value1", "value2" };
-        }
+            try
+            {
+                var httpClient = _clientFactory.CreateClient();
+                var retryPolicy = _policyRegistry.Get<IAsyncPolicy<HttpResponseMessage>>(PolicyNames.BasicRetry)
+                             ?? Policy.NoOpAsync<HttpResponseMessage>();
 
-        // GET api/values/5
-        [HttpGet("{id}")]
-        public ActionResult<string> Get(int id)
-        {
-            return "value";
-        }
+                var context = new Context($"GetSomeData-{Guid.NewGuid()}", new Dictionary<string, object>
+                {
+                    { PolicyContextItems.Logger, _logger }
+                });
 
-        // POST api/values
-        [HttpPost]
-        public void Post([FromBody] string value)
-        {
-        }
+                var response = await retryPolicy.ExecuteAsync(ctx => 
+                    httpClient.GetAsync("http://www.hopefully-this-doesnt-exist-and-will-return-404.com/apaththatdoesntexist"), context);
 
-        // PUT api/values/5
-        [HttpPut("{id}")]
-        public void Put(int id, [FromBody] string value)
-        {
-        }
+                var result = response.IsSuccessStatusCode ? await response.Content.ReadAsStringAsync() : "Error";
 
-        // DELETE api/values/5
-        [HttpDelete("{id}")]
-        public void Delete(int id)
-        {
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return NotFound();
+            }
         }
     }
 }
