@@ -41,7 +41,7 @@ namespace PollyLoggingContextSample.Controllers
                 });
 
                 var response = await retryPolicy.ExecuteAsync(ctx => 
-                    httpClient.GetAsync("http://www.hopefully-this-doesnt-exist-and-will-return-404.com/apaththatdoesntexist"), context);
+                    httpClient.GetAsync("http://example.com/returns-404-statuscode"), context);
 
                 var result = response.IsSuccessStatusCode ? await response.Content.ReadAsStringAsync() : "Error";
 
